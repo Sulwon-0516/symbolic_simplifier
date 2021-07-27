@@ -3,10 +3,8 @@ import re
 import glob
 import json
 import numpy as np
-
-import ray
-
-
+import multiprocessing as mp
+from multiprocessing import Pool
 
 from Data.halide_utils import HalideVocab
 from Data.data_utils import tokenize, parse_expression
@@ -14,11 +12,8 @@ from Data.data_utils import tokenize, parse_expression
 from timeit import default_timer as timer
 from datetime import timedelta
 
-
-
 is_debug = True
-is_detail_debug = False
-num_process = 180
+num_process = 32
 
 class RLBatcher(object):
     def __init__(self, file_name, split=0.2, n_sample=None):
@@ -173,46 +168,29 @@ class PipelineBatcher(object):
         
         if is_debug:
             print("num loop :", len(data))
-        
-        for num in range(int(len(data)/num_process)):
-            
-            p_in = []
-            for i in range(num_process):
-                p_in.append(data[num * num_process + i][0])
-            ret = ray.get([data_load_ray.remote(p_in[i],self.vocab) for i in range(num_process)])
-            
-            if is_detail_debug:
-                end = timer()
-                print("ray dist part : ",timedelta(seconds = end - start))
-                start = timer()
-            
-            add_list = []
-            for i in range(num_process):
-                in_seq, tree_in, LUT, add, len_add, tree_add= ret[i]
-                if (in_seq == None):
-                    continue
+        with Pool(num_process) as p:
+            for num in range( int(len(data)/num_process)):
+                p_in = []
+                for i in range(num_process):
+                    p_in.append((data[num * num_process + i][0],self.vocab))
+                ret = p.starmap(data_load_mp,p_in)
                 
-                add_list.extend(add)
+                add_list = []
+                for i in range(num_process):
+                    in_seq, tree_in, LUT, add= ret[i]
+                    if (in_seq == None):
+                        continue
+                    
+                    add_list.extend(add)
+                    
+                    exprs.append([tree_in, LUT])
+                    lengths += len(in_seq)
+                    sizes += tree_in.size()
                 
-                exprs.append([tree_in, LUT])
-                lengths += len_add
-                sizes += tree_add
-            
-            if is_detail_debug:
-                end = timer()
-                print("merging part : ",timedelta(seconds = end - start))
-                start = timer()
-            
-            # remove duplicated one.
-            if len(add_list) > 0 :
+                # remove duplicated one.
                 add_list = list(set(add_list))
                 for _, token in enumerate(add_list):
                     self.vocab.add_word(token)
-                    
-            if is_detail_debug:
-                end = timer()
-                print("vocab part : ",timedelta(seconds = end - start))
-                start = timer()
                 
         if is_debug:
             end = timer()
@@ -237,11 +215,11 @@ class PipelineBatcher(object):
         for i in self.val_set:
             yield i
 
-@ray.remote
-def data_load_ray(i,voc):
+
+def data_load_mp(i,voc):
     in_seq = tokenize(i, voc)
     if "%" in in_seq:
-        return None, None, None, None, None, None
+        return None, None, None, None
     LUT = dict()
     add_list = []
     for tid, token in enumerate(in_seq):
@@ -259,7 +237,7 @@ def data_load_ray(i,voc):
             
     tree_in = parse_expression(in_seq, voc)
 
-    return in_seq, tree_in, LUT, add_list, len(in_seq), tree_in.size()
+    return in_seq, tree_in, LUT, add_list
 
 
 

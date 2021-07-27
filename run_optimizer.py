@@ -8,6 +8,7 @@ from Models.Classifier import RewriteDecider
 from Optimizer.transform_rule import RuleSet
 from Optimizer.data_norm import *
 
+from Data import Batcher_org
 
 config = "configs/halide.json"
 with open(config) as fp:
@@ -21,6 +22,10 @@ decoder_name = hps["decoder_name"]
 
 pretrain_batcher = CurriculumBatcher(hps["vocab_name"], hps["n_var"], n_sample=hps["n_sample"])
 pipeline_batcher = PipelineBatcher()
+
+#pp_b_org = Batcher_org.PipelineBatcher()
+
+#vocab_org = pp_b_org.vocab
 vocab = pipeline_batcher.vocab
 calibrate_hps(hps, vocab, decoder_name)
 

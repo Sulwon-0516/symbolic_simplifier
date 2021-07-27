@@ -97,8 +97,8 @@ class EncoderDecoder(object):
     def __train(self, loss):
         self.encoder_optim.zero_grad()
         self.decoder_optim.zero_grad()
-        with torch.autograd.set_detect_anomaly(True):
-            loss.backward(retain_graph=True)
+           
+        loss.backward(retain_graph=True)
         res = [d.grad for d in self.decoder.parameters() if d.grad is not None and torch.any(torch.isnan(d.grad))]
         if len(res):
             return

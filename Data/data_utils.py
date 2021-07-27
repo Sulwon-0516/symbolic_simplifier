@@ -69,7 +69,12 @@ class Vocab(object):
         if token not in self.word2id:
             self.word2id[token] = len(self.word2id)
             self.id2word[len(self.id2word)] = token
-        return self.word2id[token]
+            
+            #print("new toekn is given!!!")
+            
+            return True
+        else:
+            return False
 
     def get_const_vars(self):
         v = list()
