@@ -97,7 +97,8 @@ class EncoderDecoder(object):
     def __train(self, loss):
         self.encoder_optim.zero_grad()
         self.decoder_optim.zero_grad()
-        loss.backward(retain_graph=True)
+        with torch.autograd.set_detect_anomaly(True):
+            loss.backward(retain_graph=True)
         res = [d.grad for d in self.decoder.parameters() if d.grad is not None and torch.any(torch.isnan(d.grad))]
         if len(res):
             return
@@ -338,9 +339,11 @@ class EncoderDecoder(object):
                 for e in equivalence:
                     e = e.clone()
                     token_tree_to_id_tree(e, vocab)
-                    self.enforce_encoding(s2=[e], encoded1=hidden_states, eos=eos, positive=True)
+                    #self.enforce_encoding(s2=[e], encoded1=hidden_states, eos=eos, positive=True)
+                    self.enforce_encoding(s1=sample_input, s2=[e], eos=eos, positive=True)
                 for ne in unequals:
                     ne = ne.clone()
                     token_tree_to_id_tree(ne, vocab)
-                    self.enforce_encoding(s2=[ne], encoded1=hidden_states, eos=eos, positive=False)
+                    #self.enforce_encoding(s2=[ne], encoded1=hidden_states, eos=eos, positive=False)
+                    self.enforce_encoding(s1=sample_input, s2=[ne], eos=eos, positive=False)
         return total_reward / total_sample, rl_loss, equivalence

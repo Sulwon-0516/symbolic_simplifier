@@ -134,7 +134,10 @@ class CurriculumBatcher(object):
 class PipelineBatcher(object):
     def __init__(self):
         self.vocab = HalideVocab()
-        self.train_set = self.__load("train")
+        self.train_set = self.__load("train")  ############################################
+        #self.test_set = self.train_set
+        #self.val_set = self.train_set
+        
         self.test_set = self.__load("test")
         self.val_set = self.__load("val")
         self.train_pool = np.arange(len(self.train_set))
