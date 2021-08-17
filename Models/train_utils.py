@@ -3,7 +3,7 @@ import os
 import json
 import shutil
 from Data.halide_utils import HalideVocab
-
+from Data.data_utils import *
 
 def get_device():
     if torch.cuda.is_available():
@@ -81,3 +81,41 @@ class RLModelSaver(object):
         if ruleset is not None:
             with open(save_path + "/rules.json", "w") as fp:
                 json.dump(ruleset.dump(), fp, indent=2)
+
+
+DIR  = "/home/inhee/symbolic_simplifier/pretrain_log_first/D4_16_6_7"
+
+
+def pretrain_loader(model, rule_set, voc, dir = DIR):
+    # before I define the Rules, I need to add the Constants and Variables on dict
+    # Also, I need to 
+    rule_path = os.path.join(DIR,'rules.json')
+    if os.path.isfile(rule_path):
+        with open(rule_path, "r") as f:
+            contents = f.read()
+            json_data = json.loads(contents)
+        
+        for i in range(len(json_data)):
+            lhs = json_data[i][0]
+            rhs = json_data[i][1]
+            
+            lhs_tree = parse_expression(lhs,voc)
+            rhs_tree = parse_expression(rhs,voc)
+            
+            # I'm not sure it's required
+            #id_tree_to_token_tree(lhs_tree, voc)
+            #id_tree_to_token_tree(rhs_tree, voc)
+            
+            rule_set[lhs_tree] = rhs_tree
+    
+    enc_path = os.path.join(DIR, 'encoder.pt')
+    dec_path = os.path.join(DIR, 'decoder.pt')
+    
+    model.encoder.load_state_dict(torch.load(enc_path))
+    model.decoder.load_state_dict(torch.load(dec_path))
+    
+    return rule_set
+    
+    
+    
+

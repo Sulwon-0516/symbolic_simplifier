@@ -1,20 +1,28 @@
 from Data.data_utils import token_tree_to_id_tree, id_tree_to_token_tree
 from torch.distributions.categorical import Categorical
 from Data.reward import _tester
-from Data.Batcher import PipelineBatcher, CurriculumBatcher
+from Data.Batcher_ray import PipelineBatcher, CurriculumBatcher
 from Models.train_utils import *
 from Models.EncoderDecoder import EncoderDecoder
 from Models.Classifier import RewriteDecider
 from Optimizer.transform_rule import RuleSet
 from Optimizer.data_norm import *
 
+from utils.visualizer import VisdomLinePlotter
 import os
-
-os.os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 config = "configs/halide.json"
 with open(config) as fp:
     hps = json.load(fp)
+    
+selector_step = 0
+beam_step = 0
+visline = VisdomLinePlotter("test")
+visline.plot("selector_loss", "log_prob_loss", "selector Loss by step", selector_step, 0)
+visline.plot("rl_loss", "loss", "beam Loss by step", beam_step, 0 )
+
+
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 MAX_ITER = 20
 THRESH = 0.1
@@ -31,6 +39,7 @@ pipeline_batcher = PipelineBatcher()
 vocab = pipeline_batcher.vocab
 calibrate_hps(hps, vocab, decoder_name) # with out this step, as we can't define the input size
 
+rule_set = RuleSet(vocab)
 
 e2d = EncoderDecoder(encoder_name, decoder_name, hps, device=get_device())
 picker = RewriteDecider(hps, device=get_device())
@@ -38,8 +47,6 @@ picker = RewriteDecider(hps, device=get_device())
 if "load_dir" in hps:
    e2d.load(hps["load_dir"])
    print("Model loaded from", hps["load_dir"])
-
-rule_set = RuleSet(vocab)
 
 if not os.path.exists(hps["logdir"]):
     os.makedirs(hps["logdir"])
@@ -93,14 +100,20 @@ def pretrain():
 
 
 def pipeline_train(e2d, picker, log_prob, picker_reward, train):
+    
     if not train:
         return
-    e2d.encoder_optim.zero_grad()
+    #e2d.encoder_optim.zero_grad()
     picker.optim.zero_grad()
     loss = -log_prob * picker_reward
     loss.backward(retain_graph=True)
     e2d.encoder_optim.step()
+    e2d.decoder_optim.step()
     picker.optim.step()
+    
+    global selector_step
+    selector_step = selector_step + 1
+    visline.plot("selector_loss", "log_prob_loss", "selector Loss by step", selector_step, loss.cpu().detach())
 
 
 def rule_rewrite(rule_set, sub_tree, root):
@@ -165,12 +178,6 @@ def pipeline(tree, LUT, train, base_r):
         token_tree_to_id_tree(id_tree, vocab)
         encoder_out, rnn_out, hidden_states, input_refs = e2d.encode([id_tree], eos)
         select_scores = picker(encoder_out)
-        
-        ss_nan = torch.isnan(select_scores)
-        if torch.sum(ss_nan) > 0:
-            print("wrong at selector bp")
-        
-        
         if torch.max(select_scores) < THRESH:
             break
         disp = Categorical(probs=select_scores)
@@ -200,9 +207,14 @@ def pipeline(tree, LUT, train, base_r):
                 max_depth=min(3, sub_tree.depth()),
                 beam_size=20,
                 num_res=20, 
-                train= False,     #########train,
+                train= train,
+                use_opt = False,
                 baseline=base_r, 
                 LUT=merged_lut)
+            
+            global beam_step
+            beam_step = beam_step + 1
+            visline.plot("rl_loss", "loss", "beam Loss by step", beam_step, loss)
             
             id_tree_to_token_tree(sub_tree, vocab)
             
@@ -253,7 +265,7 @@ def pipeline(tree, LUT, train, base_r):
 
         pipeline_train(e2d, picker, log_prob, picker_reward, train)
         
-        if train:
+        if train and False:
             sub_tree, cef_LUT = cef(sub_tree, vocab)
             sub_tree, SEE = sef(sub_tree, 3, vocab)
             sub_tree, sub_LUT = normalize(sub_tree, vocab)
@@ -277,7 +289,11 @@ def pipeline(tree, LUT, train, base_r):
 
 
 baseline_reward = 0
-pretrain()
+
+# skip pretrain
+rule_set = pretrain_loader(e2d, rule_set, vocab)
+
+
 for epoch in range(10):
     rewards = 0
     size_red = [0, 0, 0]

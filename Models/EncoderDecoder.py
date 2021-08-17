@@ -107,6 +107,15 @@ class EncoderDecoder(object):
         self.__step += 1
         if self.__step % 1000 == 0 and self.logdir is not None:
             self.__check_point()
+            
+    def __bp(self, loss):
+        loss.backward(retain_graph = True)
+        res = [d.grad for d in self.decoder.parameters() if d.grad is not None and torch.any(torch.isnan(d.grad))]
+        if len(res):
+            return
+        self.__step += 1
+        if self.__step % 1000 == 0 and self.logdir is not None:
+            self.__check_point()
 
     def decode_one_step(self, yt, encoder_out, rnn_out, input_seq, hs, get_att=False):
         if self.decoder_name == "AttLSTM":
@@ -197,7 +206,7 @@ class EncoderDecoder(object):
             raise ValueError("Unknown Encoder")
         return encoder_outputs, rnn_outputs, hidden_states, input_refs
 
-    def enforce_encoding(self, *, eos, s1=None, s2=None, encoded1=None, encoded2=None, positive: bool):
+    def enforce_encoding(self, *, eos, s1=None, s2=None, encoded1=None, encoded2=None, use_opt = True, positive: bool):
         """
         s1 and s2 are equivalent expressions, enforce their encoding to be the same
         i.e. the encoder should encode s1 and s2 to the same vector (encoder output should be same)
@@ -210,7 +219,12 @@ class EncoderDecoder(object):
 
         loss = torch.nn.MSELoss()(encoder_outputs1[0][:self._hps["hidden_unit_split"]],
                                   encoder_outputs2[0][:self._hps["hidden_unit_split"]]) * self._hps["l2_weight"]
-        self.__train(int(positive) * loss)
+        
+        if use_opt:
+            self.__train(int(positive) * loss)
+        else:
+            self.__bp(int(positive) * loss)
+        
         return loss.item()
 
     def supervised(self, input_seq, output_seq, sos, eos=None, train=True):
@@ -294,8 +308,9 @@ class EncoderDecoder(object):
                     queue.append((target_t, None, hsc, d + 1))
         return total_loss
 
-    def tree_beam_search(self, sample_input, vocab, max_depth, beam_size, num_res, train, bin_score=True,
+    def tree_beam_search(self, sample_input, vocab, max_depth, beam_size, num_res, train, use_opt=True, bin_score=True,
                          baseline=0, LUT=None):
+        
         if not isinstance(sample_input[0], list):
             # convert to a list
             input_seq = sample_input[0].to_tokens()
@@ -308,6 +323,7 @@ class EncoderDecoder(object):
         rl_loss = 0
         total_reward = 0
         total_sample = 0
+        
         for depth in range(1, max_depth + 1):
             bs_results = beam_tree(self, sample_input, vocab, depth, beam_size, num_res, get_attention=False)
             if len(bs_results) == 0:
@@ -332,7 +348,14 @@ class EncoderDecoder(object):
                 break
 
         if train:
-            self.__train(rl_loss)
+            if use_opt:
+                self.__train(rl_loss)
+            else:
+                self.encoder_optim.zero_grad()
+                self.decoder_optim.zero_grad()
+                self.__bp(rl_loss)
+                
+            
             if self._hps["l2_loss"]:
                 eos = np.ones([1, 1]) * vocab.end()
                 _, _, hidden_states, _ = self.encode(sample_input, eos)
@@ -340,10 +363,12 @@ class EncoderDecoder(object):
                     e = e.clone()
                     token_tree_to_id_tree(e, vocab)
                     #self.enforce_encoding(s2=[e], encoded1=hidden_states, eos=eos, positive=True)
-                    self.enforce_encoding(s1=sample_input, s2=[e], eos=eos, positive=True)
+                    self.enforce_encoding(s1=sample_input, s2=[e], eos=eos, positive=True, use_opt = use_opt)
                 for ne in unequals:
                     ne = ne.clone()
                     token_tree_to_id_tree(ne, vocab)
                     #self.enforce_encoding(s2=[ne], encoded1=hidden_states, eos=eos, positive=False)
-                    self.enforce_encoding(s1=sample_input, s2=[ne], eos=eos, positive=False)
+                    self.enforce_encoding(s1=sample_input, s2=[ne], eos=eos, positive=False, use_opt = use_opt)
+        
+        
         return total_reward / total_sample, rl_loss, equivalence

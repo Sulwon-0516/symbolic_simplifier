@@ -176,48 +176,48 @@ class Rule(object):
 
 class RuleSet(MutableMapping):
     def __init__(self, vocab, *args, **kwargs):
-        self.__store = dict()    # {str: Rule}
+        self._store = dict()    # {str: Rule}
         self.update(dict(*args, **kwargs))   # not actually used
-        self.__vocab = vocab
+        self._vocab = vocab
 
     def __getitem__(self, key):
         if isinstance(key, str):
-            return self.__store[key]
+            return self._store[key]
         if not isinstance(key, TreeNode):
             raise TypeError("Not a valid type:", type(key))
         _, norm_key = self.__key_transform__(key)
-        return self.__store[norm_key]
+        return self._store[norm_key]
 
     def __key_transform__(self, key: TreeNode):
         tree_copy = key.clone()
-        _, LUT = normalize(tree_copy, self.__vocab)
+        _, LUT = normalize(tree_copy, self._vocab)
         return LUT, str(tree_copy)
 
     def __setitem__(self, key: TreeNode, value: TreeNode):
         """ set up a Transformation rule """
-        rule = Rule(lhs=key, rhs=value, vocab=self.__vocab, norm=True)
-        self.__store[rule.lhs_str] = rule
+        rule = Rule(lhs=key, rhs=value, vocab=self._vocab, norm=True)
+        self._store[rule.lhs_str] = rule
 
     def transform(self, tree: TreeNode) -> TreeNode:
         LUT, key = self.__key_transform__(tree)
-        res = self.__store[key].apply()
+        res = self._store[key].apply()
         denormalize(res, LUT)
         return res
 
     def __iter__(self):
-        return iter(self.__store)
+        return iter(self._store)
 
     def __len__(self):
-        return len(self.__store)
+        return len(self._store)
 
     def __delitem__(self, key: TreeNode):
-        self.__store.pop(self.__key_transform__(key))
+        self._store.pop(self.__key_transform__(key))
 
     def __dict__(self):
-        return self.__store
+        return self._store
 
     def __str__(self):
-        return str(self.__store)
+        return str(self._store)
 
     def partially_match_rule(self, expression: TreeNode):
         """
@@ -226,8 +226,8 @@ class RuleSet(MutableMapping):
         :return:
         """
         LUT, key = self.__key_transform__(expression)
-        if key in self.__store:
-            return self.__store[key]
+        if key in self._store:
+            return self._store[key]
         for c in expression.iter_child():
             if c is not None:
                 res = self.partially_match_rule(c)
@@ -241,18 +241,18 @@ class RuleSet(MutableMapping):
         """
         str_ref = str(exp)
         exp_clone = exp.clone()
-        for key in self.__store:
-            exp_rewrite = self.__store[key].soft_transform(exp_clone)
+        for key in self._store:
+            exp_rewrite = self._store[key].soft_transform(exp_clone)
             if str(exp_rewrite) != str_ref:
                 return exp_rewrite
         return exp_clone
 
     def merge(self, rule_set):
         for k in rule_set:
-            self.__store[k] = rule_set[k]
+            self._store[k] = rule_set[k]
 
     def dump(self):
         rules = list()
-        for rule in self.__store.values():
+        for rule in self._store.values():
             rules.append(rule.dump())
         return rules

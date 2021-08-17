@@ -18,7 +18,7 @@ class AttentionDecoderLSTM(nn.Module):
             a projection and softmax layer to predict logits
         :return:
         """
-        if embed_matrix is not None:
+        if embed_matrix is not None:                    #### ang???????? why it's is not None?
             self.embed_matrix = nn.Parameter(
                 torch.randn([self._hps["input_size"], self._hps["embed_size"]]))
         else:

@@ -70,7 +70,7 @@ class Vocab(object):
             self.word2id[token] = len(self.word2id)
             self.id2word[len(self.id2word)] = token
             
-            #print("new toekn is given!!!")
+            #print("new token is given!!!")
             
             return True
         else:
@@ -389,6 +389,7 @@ class TreeNode(object):
             v = ""  # for debug"<none>"
         else:
             v = self._val
+        
         if self._type == VAR:
             res = [v]
         elif self._type == OP:
